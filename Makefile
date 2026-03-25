@@ -24,7 +24,7 @@ local-rca-demo:
 	$(PYTHON) -m app.demo.local_rca
 
 alert-template:
-	$(PYTHON) -m app.main --print-template $(or $(TEMPLATE),generic)
+	@$(PYTHON) -m app.main --print-template $(or $(TEMPLATE),generic)
 
 investigate-alert:
 	@[ -n "$(ALERT)" ] || { echo "Usage: make investigate-alert ALERT=/path/to/alert.json"; exit 1; }
