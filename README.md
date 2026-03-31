@@ -35,15 +35,13 @@
 > **New to Tracer?** See [SETUP.md](SETUP.md) for detailed platform-specific setup instructions, including Windows setup, environment configuration, and more.
 
 ```bash
-git clone https://github.com/Tracer-Cloud/open-sre-agent
-cd open-sre-agent
+git clone https://github.com/Tracer-Cloud/opensre
+cd opensre
 make install
-make install-hooks
-cp .env.example .env
 # run opensre onboard to configure your local LLM provider
 # and optionally validate/save Grafana, Datadog, Slack, AWS, GitHub MCP, and Sentry integrations
 opensre onboard
-make local-grafana-live
+opensre investigate -i tests/fixtures/grafana_local_alert.json
 ```
 
 **Choose a path:**
@@ -58,7 +56,7 @@ make local-grafana-live
 
 When something breaks in production, the pressure is immediate - but the evidence is scattered. Logs in Datadog. Metrics in Grafana. Runbooks in Notion. Context in Slack threads already 200 messages deep.
 
-**Tracer is the open-source answer to that chaos.** It's an AI SRE agent that correlates signals across your entire stack, reasons through root cause, and surfaces a clear diagnosis - in the time it used to take just to *find* the right dashboard.
+**Tracer is the open-source answer to that chaos.** It's an AI SRE agent that correlates signals across your entire stack, reasons through root cause, and surfaces a clear diagnosis - in the time it used to take just to _find_ the right dashboard.
 
 Unlike closed SRE platforms, Tracer is **fully open source and self-hostable**. No vendor lock-in. No black-box reasoning. You own the agent, the data, and the workflow.
 
@@ -86,13 +84,13 @@ When an alert fires, Tracer automatically:
 
 ## Capabilities
 
-| | |
-|---|---|
-| 🔍 **Structured incident investigation** | Correlated root-cause analysis across all your signals |
-| 📋 **Runbook-aware reasoning** | Tracer reads your runbooks and applies them automatically |
-| 🔮 **Predictive failure detection** | Catch emerging issues before they page you |
-| 🔗 **Evidence-backed root cause** | Every conclusion is linked to the data behind it |
-| 🤖 **Full LLM flexibility** | Bring your own model - OpenAI, Anthropic, and more |
+|                                          |                                                           |
+| ---------------------------------------- | --------------------------------------------------------- |
+| 🔍 **Structured incident investigation** | Correlated root-cause analysis across all your signals    |
+| 📋 **Runbook-aware reasoning**           | Tracer reads your runbooks and applies them automatically |
+| 🔮 **Predictive failure detection**      | Catch emerging issues before they page you                |
+| 🔗 **Evidence-backed root cause**        | Every conclusion is linked to the data behind it          |
+| 🤖 **Full LLM flexibility**              | Bring your own model - OpenAI, Anthropic, and more        |
 
 ---
 
@@ -100,13 +98,13 @@ When an alert fires, Tracer automatically:
 
 Tracer integrates with the systems that power modern data platforms.
 
-| Category | Integrations |
-|---|---|
-| **Data Platform** | Apache Airflow · Apache Kafka · Apache Spark |
-| **Observability** | <img src="docs/assets/icons/grafana.webp" width="16"> Grafana · <img src="docs/assets/icons/datadog.svg" width="16"> Datadog · <img src="docs/assets/icons/cloudwatch.png" width="16"> CloudWatch · <img src="docs/assets/icons/sentry.png" width="16"> Sentry |
-| **Infrastructure** | <img src="docs/assets/icons/kubernetes.png" width="16"> Kubernetes · <img src="docs/assets/icons/aws.png" width="16"> AWS · <img src="docs/assets/icons/gcp.jpg" width="16"> GCP · <img src="docs/assets/icons/azure.png" width="16"> Azure |
-| **Dev Tools** | <img src="docs/assets/icons/github.webp" width="16"> GitHub |
-| **Communication** | <img src="docs/assets/icons/slack.png" width="16"> Slack · <img src="docs/assets/icons/pagerduty.png" width="16"> PagerDuty |
+| Category           | Integrations                                                                                                                                                                                                                                                   |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Data Platform**  | Apache Airflow · Apache Kafka · Apache Spark                                                                                                                                                                                                                   |
+| **Observability**  | <img src="docs/assets/icons/grafana.webp" width="16"> Grafana · <img src="docs/assets/icons/datadog.svg" width="16"> Datadog · <img src="docs/assets/icons/cloudwatch.png" width="16"> CloudWatch · <img src="docs/assets/icons/sentry.png" width="16"> Sentry |
+| **Infrastructure** | <img src="docs/assets/icons/kubernetes.png" width="16"> Kubernetes · <img src="docs/assets/icons/aws.png" width="16"> AWS · <img src="docs/assets/icons/gcp.jpg" width="16"> GCP · <img src="docs/assets/icons/azure.png" width="16"> Azure                    |
+| **Dev Tools**      | <img src="docs/assets/icons/github.webp" width="16"> GitHub                                                                                                                                                                                                    |
+| **Communication**  | <img src="docs/assets/icons/slack.png" width="16"> Slack · <img src="docs/assets/icons/pagerduty.png" width="16"> PagerDuty                                                                                                                                    |
 
 ---
 
@@ -125,7 +123,7 @@ We've tried to be intentional about how Tracer is built, not just what it does.
 
 Tracer is community-built. Every integration, improvement, and bug fix makes it better for thousands of engineers. We actively review PRs and welcome contributors of all experience levels.
 
-Good first issues are labeled [`good first issue`](https://github.com/Tracer-Cloud/tracer-agent/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22). Ways to contribute:
+Good first issues are labeled [`good first issue`](https://github.com/Tracer-Cloud/opensre/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22). Ways to contribute:
 
 - 🐛 Report bugs or missing edge cases
 - 🔌 Add a new tool integration
