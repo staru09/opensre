@@ -1,20 +1,96 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "v*"
+  schedule:
+    - cron: "30 0 * * *"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Optional tag to release (e.g. v2026.4.5). Defaults to today's vYYYY.M.D (UTC)."
+        required: false
+        type: string
 
 permissions:
   contents: write
+  actions: read
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  gate-and-resolve-tag:
+    runs-on: ubuntu-latest
+    outputs:
+      tag_name: ${{ steps.tag.outputs.tag_name }}
+      should_run: ${{ steps.gate.outputs.should_run }}
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Resolve tag name
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.tag }}" ]; then
+            echo "tag_name=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          year="$(date -u +%Y)"
+          month="$(date -u +%-m)"
+          day="$(date -u +%-d)"
+          echo "tag_name=v${year}.${month}.${day}" >> "$GITHUB_OUTPUT"
+
+      - name: Gate on CI passing for latest main commit (schedule/manual)
+        id: gate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          default_branch="${{ github.event.repository.default_branch }}"
+          git fetch origin "$default_branch"
+          head_sha="$(git rev-parse "origin/$default_branch")"
+
+          run_json="$(gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs" \
+            -f branch="$default_branch" \
+            -f event="push" \
+            -f status="completed" \
+            -f per_page="1")"
+          conclusion="$(printf '%s' "$run_json" | jq -r '.workflow_runs[0].conclusion // empty')"
+          run_sha="$(printf '%s' "$run_json" | jq -r '.workflow_runs[0].head_sha // empty')"
+
+          if [ -z "$conclusion" ] || [ -z "$run_sha" ]; then
+            echo "Could not resolve latest CI run for $default_branch."
+            echo "$run_json"
+            exit 1
+          fi
+
+          if [ "$run_sha" != "$head_sha" ]; then
+            echo "Latest completed CI run is for $run_sha, but $default_branch is at $head_sha. Skipping."
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$conclusion" != "success" ]; then
+            echo "CI is not passing for $default_branch@$head_sha (conclusion=$conclusion). Skipping."
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "CI passing for $default_branch@$head_sha."
+          echo "should_run=true" >> "$GITHUB_OUTPUT"
+
   verify:
     runs-on: ubuntu-latest
+    needs: gate-and-resolve-tag
+    if: needs.gate-and-resolve-tag.outputs.should_run == 'true'
 
     steps:
       - uses: actions/checkout@v5
@@ -158,13 +234,16 @@ jobs:
   publish-release:
     runs-on: ubuntu-latest
     needs:
+      - gate-and-resolve-tag
       - build-python-dist
       - build-binaries
+    if: needs.gate-and-resolve-tag.outputs.should_run == 'true'
 
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
 
       - name: Download release artifacts
         uses: actions/download-artifact@v4
@@ -178,11 +257,42 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          TAG_NAME="${GITHUB_REF_NAME}"
-          GENERATED_NOTES="$(gh api "repos/${{ github.repository }}/releases/generate-notes" \
-            -f tag_name="$TAG_NAME" \
-            -f target_commitish="${GITHUB_SHA}" \
-            --jq .body)"
+          set -euo pipefail
+
+          TAG_NAME="${{ needs.gate-and-resolve-tag.outputs.tag_name }}"
+          default_branch="${{ github.event.repository.default_branch }}"
+
+          git fetch origin "$default_branch" --tags --force
+          target_sha="$(git rev-parse "origin/$default_branch")"
+
+          # Generate changelog including commit authors (contributors).
+          previous_tag="$(
+            git tag --list 'v[0-9][0-9][0-9][0-9].[0-9]*.[0-9]*' --sort=-v:refname \
+              | grep -v -x "$TAG_NAME" \
+              | head -n 1 \
+              || true
+          )"
+
+          range_spec="$target_sha"
+          if [ -n "$previous_tag" ]; then
+            range_spec="${previous_tag}..${target_sha}"
+          fi
+
+          {
+            echo "## Changelog"
+            echo
+            if [ -n "$previous_tag" ]; then
+              echo "_Changes since $previous_tag_"
+            else
+              echo "_Changes up to $TAG_NAME_"
+            fi
+            echo
+            git log "$range_spec" --no-merges --pretty='- %s (%h) — %an'
+            echo
+          } > GENERATED_CHANGELOG.md
+
+          GENERATED_NOTES="$(cat GENERATED_CHANGELOG.md)"
+
           {
             echo "## Install"
             echo
@@ -218,11 +328,23 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          gh release create "${GITHUB_REF_NAME}" \
+          set -euo pipefail
+
+          TAG_NAME="${{ needs.gate-and-resolve-tag.outputs.tag_name }}"
+          default_branch="${{ github.event.repository.default_branch }}"
+          git fetch origin "$default_branch" --tags --force
+          target_sha="$(git rev-parse "origin/$default_branch")"
+
+          if gh release view "$TAG_NAME" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release $TAG_NAME already exists; nothing to do."
+            exit 0
+          fi
+
+          gh release create "$TAG_NAME" \
             release-assets/* \
             --repo "${{ github.repository }}" \
-            --verify-tag \
-            --title "${GITHUB_REF_NAME}" \
+            --target "$target_sha" \
+            --title "Latest" \
             --notes-file RELEASE_NOTES.md
 
       # - name: Update Homebrew formula
