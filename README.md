@@ -462,6 +462,13 @@ Thanks goes to these amazing people:
             <sub><b>ljivesh</b></sub>
         </a>
     </td>
+            <td align="center">
+        <a href="https://github.com/gautamjain1503">
+            <img src="https://avatars.githubusercontent.com/u/97388837?v=4" width="100" alt="gautamjain1503"/>
+            <br />
+            <sub><b>gautamjain1503</b></sub>
+        </a>
+    </td>
 		</tr>
 	</tbody>
 </table>
