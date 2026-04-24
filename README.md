@@ -784,6 +784,27 @@ Thanks goes to these amazing people:
             <sub><b>CuriousHet</b></sub>
         </a>
     </td>
+            <td align="center">
+        <a href="https://github.com/Dipxssi">
+            <img src="https://avatars.githubusercontent.com/u/151428630?v=4" width="100" alt="Dipxssi"/>
+            <br />
+            <sub><b>Dipxssi</b></sub>
+        </a>
+    </td>
+            <td align="center">
+        <a href="https://github.com/sirohikartik">
+            <img src="https://avatars.githubusercontent.com/u/99896785?v=4" width="100" alt="sirohikartik"/>
+            <br />
+            <sub><b>sirohikartik</b></sub>
+        </a>
+    </td>
+            <td align="center">
+        <a href="https://github.com/imjohnzakkam">
+            <img src="https://avatars.githubusercontent.com/u/42964266?v=4" width="100" alt="imjohnzakkam"/>
+            <br />
+            <sub><b>imjohnzakkam</b></sub>
+        </a>
+    </td>
 		</tr>
 	</tbody>
 </table>
