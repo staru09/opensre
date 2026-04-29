@@ -1,29 +1,21 @@
 # Install Proxy
 
-Deploy this folder as a dedicated Cloudflare Worker and attach the `install.opensre.com` domain.
+Cloudflare Worker for the installer domain `install.opensre.com`.
 
-Suggested setup:
+Deploy from `infra/install-proxy`:
 
-1. Make sure the `opensre.com` zone is active in Cloudflare.
-2. From `infra/install-proxy`, authenticate with Cloudflare:
+1. Authenticate with Cloudflare:
    `npx wrangler login`
-3. Deploy the Worker:
+2. Deploy the Worker:
    `npx wrangler deploy`
-4. Confirm the custom domain route for `install.opensre.com` from `wrangler.jsonc`, or add it in the Cloudflare dashboard if you prefer dashboard-managed routing.
 
-After the domain is live, the single public installer entrypoint is:
+The proxy serves installer scripts from the repository:
 
-- `https://install.opensre.com`
+- `https://install.opensre.com` -> auto-detects shell from request
+- `https://install.opensre.com/install.sh` -> Unix shell installer
+- `https://install.opensre.com/install.ps1` -> PowerShell installer
 
-Examples:
-
-- `curl -fsSL https://install.opensre.com | bash`
-- `curl -fsSL https://install.opensre.com | bash -s -- --main`
-- `irm https://install.opensre.com | iex`
-
-The root URL auto-detects `curl`/Unix versus PowerShell and serves the right installer script body.
-
-If you ever need to force shell detection manually, append:
+Optional query override on the root endpoint:
 
 - `?shell=sh`
 - `?shell=powershell`
