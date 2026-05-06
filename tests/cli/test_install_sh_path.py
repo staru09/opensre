@@ -252,9 +252,9 @@ def test_install_sh_contains_onboarding_hint() -> None:
     install.sh even if the subprocess-based tests are somehow still passing.
     """
     source = INSTALL_SH.read_text()
-    assert "opensre onboard" in source, (
-        "install.sh does not contain the onboarding hint. "
-        "Expected a line like: log \"Next: run 'opensre onboard' to complete setup.\""
+    assert "${BIN_NAME:-opensre} onboard" in source, (
+        "install.sh does not contain the onboarding hint "
+        "(expected ``${BIN_NAME:-opensre} onboard`` in Next steps output)."
     )
 
 
@@ -262,9 +262,9 @@ def test_install_ps1_contains_onboarding_hint() -> None:
     """Contract test: the hint string must be present in install.ps1 source."""
     install_ps1 = Path(__file__).parents[2] / "install.ps1"
     source = install_ps1.read_text()
-    assert "opensre onboard" in source, (
-        "install.ps1 does not contain the onboarding hint. "
-        "Expected a line like: Write-Host \"Next: run 'opensre onboard' to complete setup.\""
+    assert "$exe onboard" in source, (
+        "install.ps1 does not contain the onboarding step "
+        '(expected a line with ``$exe onboard``, e.g. ``Write-Host "  1. Run  $exe onboard"``).'
     )
 
 
