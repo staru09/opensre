@@ -4,7 +4,7 @@ import argparse
 import json
 import re
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -466,10 +466,10 @@ def run_scenario(
 
 
 _TOOL_EVIDENCE_SUMMARY: dict[str, tuple[str, ...]] = {
-    "query_grafana_logs":         ("grafana_logs", "grafana_error_logs"),
-    "query_grafana_metrics":      ("grafana_metrics",),
-    "query_grafana_traces":       ("grafana_traces",),
-    "query_grafana_alert_rules":  ("grafana_alert_rules",),
+    "query_grafana_logs": ("grafana_logs", "grafana_error_logs"),
+    "query_grafana_metrics": ("grafana_metrics",),
+    "query_grafana_traces": ("grafana_traces",),
+    "query_grafana_alert_rules": ("grafana_alert_rules",),
     "query_grafana_service_names": ("grafana_service_names",),
 }
 
@@ -522,7 +522,7 @@ def _format_trajectory_markdown(
 
     lines.append(f"# Trajectory audit — {fixture.scenario_id}")
     lines.append("")
-    lines.append(f"- Captured: {datetime.now(timezone.utc).isoformat(timespec='seconds')}")
+    lines.append(f"- Captured: {datetime.now(UTC).isoformat(timespec='seconds')}")
     lines.append(f"- Scenario difficulty: {getattr(metadata, 'scenario_difficulty', '?')}")
     lines.append(f"- Failure mode: {getattr(metadata, 'failure_mode', '?')}")
     lines.append(f"- Status: {'PASS' if score.passed else 'FAIL'}")
@@ -535,9 +535,11 @@ def _format_trajectory_markdown(
     sequence_str = " → ".join(f"`{a}`" for a in actual_sequence)
     lines.append("## Statistics")
     lines.append("")
-    lines.append(f"| Metric | Value |")
-    lines.append(f"|--------|-------|")
-    lines.append(f"| Tool calls | {total_calls} total ({len(actual_sequence)} successful, {len(failed_sequence)} failed) |")
+    lines.append("| Metric | Value |")
+    lines.append("|--------|-------|")
+    lines.append(
+        f"| Tool calls | {total_calls} total ({len(actual_sequence)} successful, {len(failed_sequence)} failed) |"
+    )
     lines.append(f"| Loops used | {loops_used} / {answer_key.max_investigation_loops} max |")
     lines.append(f"| Unique tools | {len(unique_tools)} |")
     lines.append("")
@@ -594,8 +596,7 @@ def _format_trajectory_markdown(
             failed = hyp.get("failed_actions") or []
             if failed:
                 failed_names = [
-                    f.get("action", str(f)) if isinstance(f, dict) else str(f)
-                    for f in failed
+                    f.get("action", str(f)) if isinstance(f, dict) else str(f) for f in failed
                 ]
                 lines.append(f"**Failed:** {', '.join(f'`{a}`' for a in failed_names)}")
             lines.append("")
@@ -605,7 +606,9 @@ def _format_trajectory_markdown(
         lines.append("### Trajectory score (set-membership — ordering NOT enforced)")
         lines.append("")
         lines.append(f"- sequencing_ok: {traj.sequencing_ok}")
-        lines.append(f"- calibration_ok: {traj.calibration_ok}  ({traj.loops_used}/{traj.max_loops} loops)")
+        lines.append(
+            f"- calibration_ok: {traj.calibration_ok}  ({traj.loops_used}/{traj.max_loops} loops)"
+        )
         lines.append(f"- efficiency_score: {traj.efficiency_score}")
         lines.append("")
 
@@ -676,18 +679,17 @@ def _format_trajectory_markdown(
     observations: list[str] = []
 
     services_actions = [
-        a for a in actual_sequence
+        a
+        for a in actual_sequence
         if "service" in a.lower()
         and ("query" in a.lower() or "list" in a.lower() or "enumerate" in a.lower())
     ]
-    metrics_actions = [a for a in actual_sequence if "metric" in a.lower() and "service" not in a.lower()]
+    metrics_actions = [
+        a for a in actual_sequence if "metric" in a.lower() and "service" not in a.lower()
+    ]
     if services_actions and metrics_actions:
-        first_service_idx = next(
-            i for i, a in enumerate(actual_sequence) if a in services_actions
-        )
-        first_metric_idx = next(
-            i for i, a in enumerate(actual_sequence) if a in metrics_actions
-        )
+        first_service_idx = next(i for i, a in enumerate(actual_sequence) if a in services_actions)
+        first_metric_idx = next(i for i, a in enumerate(actual_sequence) if a in metrics_actions)
         if first_service_idx > first_metric_idx:
             observations.append(
                 f"Service enumeration (`{services_actions[0]}`) happened at step {first_service_idx + 1}, "
@@ -702,7 +704,9 @@ def _format_trajectory_markdown(
         )
 
     if not observations:
-        lines.append("_No issues auto-detected. Reviewer: read the per-loop rationale above and add notes below._")
+        lines.append(
+            "_No issues auto-detected. Reviewer: read the per-loop rationale above and add notes below._"
+        )
     else:
         for obs in observations:
             lines.append(f"- {obs}")
@@ -776,9 +780,7 @@ def run_suite(argv: list[str] | None = None) -> list[ScenarioScore]:
         if not fixtures:
             raise SystemExit(f"Unknown scenario: {args.scenario}")
 
-    capture_dir: Path | None = (
-        Path(args.capture_trajectory) if args.capture_trajectory else None
-    )
+    capture_dir: Path | None = Path(args.capture_trajectory) if args.capture_trajectory else None
 
     results: list[ScenarioScore] = []
     for fixture in fixtures:
