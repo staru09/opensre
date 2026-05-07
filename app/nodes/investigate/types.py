@@ -28,6 +28,16 @@ class FailedAction(TypedDict, total=False):
     loop_count: int
 
 
+class ToolTraceEntry(TypedDict, total=False):
+    """Raw capture of a single tool call: inputs and output."""
+
+    tool: str
+    params: dict[str, Any]
+    output: str  # JSON-serialised result.data, truncated to _MAX_TRACE_OUTPUT_CHARS
+    summary: str  # one-line human summary computed from full data (no truncation)
+    success: bool
+
+
 class ExecutedHypothesis(TypedDict, total=False):
     """A single planning/execution round recorded in state."""
 
@@ -39,3 +49,4 @@ class ExecutedHypothesis(TypedDict, total=False):
     source: str
     sources: list[str]
     audit: PlanAudit
+    tool_trace: list[ToolTraceEntry]

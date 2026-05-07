@@ -7,12 +7,13 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 
 from app.nodes.investigate.execution.execute_actions import ActionExecutionResult
-from app.nodes.investigate.types import ExecutedHypothesis, FailedAction, PlanAudit
+from app.nodes.investigate.types import ExecutedHypothesis, FailedAction, PlanAudit, ToolTraceEntry
 from app.tools.utils.metric_summary import summarize_prometheus_metrics
 
 logger = logging.getLogger(__name__)
 
 MAX_RETRYABLE_ACTION_FAILURES = 2
+_MAX_TRACE_OUTPUT_CHARS = 2000
 _NON_RETRYABLE_FAILURE_INDICATORS = (
     "typeerror",
     "command not found",
@@ -717,6 +718,56 @@ EVIDENCE_MAPPERS: dict[str, Callable[[dict], dict]] = {
 }
 
 
+def _summarise_tool_data(action_name: str, data: dict | None) -> str:
+    """One-line summary of a tool call computed from the full (untruncated) data.
+
+    Stored alongside the (possibly truncated) raw output so trajectory audits
+    can show accurate counts in the Pipeline timeline without re-parsing.
+    """
+    if not isinstance(data, dict):
+        return "—"
+    if action_name == "query_grafana_metrics":
+        return f"{len(data.get('metrics') or [])} metric series"
+    if action_name == "query_grafana_logs":
+        logs = len(data.get("logs") or [])
+        errs = len(data.get("error_logs") or [])
+        return f"{logs} logs ({errs} errors)"
+    if action_name == "query_grafana_alert_rules":
+        return f"{len(data.get('rules') or [])} alert rules"
+    if action_name == "query_grafana_traces":
+        return f"{len(data.get('traces') or [])} traces"
+    if action_name == "query_grafana_service_names":
+        return f"{len(data.get('service_names') or [])} service names"
+    if action_name == "get_sre_guidance":
+        return "guidance found" if data.get("success") else "no guidance"
+    if action_name == "get_error_logs":
+        return f"{len(data.get('logs') or [])} error logs"
+    if action_name == "get_failed_jobs":
+        return f"{len(data.get('failed_jobs') or [])} failed jobs"
+    if action_name == "get_failed_tools":
+        return f"{len(data.get('failed_tools') or [])} failed tools"
+    return "raw output"
+
+
+def _build_tool_trace(execution_results: dict[str, ActionExecutionResult]) -> list[ToolTraceEntry]:
+    """Build a per-call trace list from execution results for trajectory auditing."""
+    trace: list[ToolTraceEntry] = []
+    for action_name, result in execution_results.items():
+        raw = json.dumps(result.data, default=str)
+        if len(raw) > _MAX_TRACE_OUTPUT_CHARS:
+            raw = raw[:_MAX_TRACE_OUTPUT_CHARS] + "... [truncated]"
+        trace.append(
+            {
+                "tool": action_name,
+                "params": result.params,
+                "output": raw,
+                "summary": _summarise_tool_data(action_name, result.data),
+                "success": result.success,
+            }
+        )
+    return trace
+
+
 def merge_evidence(
     current_evidence: dict[str, object],
     execution_results: dict[str, ActionExecutionResult],
@@ -765,6 +816,7 @@ def track_hypothesis(
     plan_audit: PlanAudit | None = None,
     failed_actions: list[FailedAction] | None = None,
     exhausted_actions: list[str] | None = None,
+    tool_trace: list[ToolTraceEntry] | None = None,
 ) -> list[ExecutedHypothesis]:
     """
     Track executed hypothesis for deduplication and audit trail.
@@ -777,6 +829,7 @@ def track_hypothesis(
         plan_audit: Optional audit data from planning step (rerouting, budget, etc)
         failed_actions: Failed action audit records from this execution round
         exhausted_actions: Failed actions that should be excluded from future planning
+        tool_trace: Per-call trace of tool inputs and raw outputs for trajectory auditing
 
     Returns:
         Updated executed_hypotheses list with audit trail
@@ -793,6 +846,8 @@ def track_hypothesis(
     # Include audit data if rerouting occurred or budget was enforced
     if plan_audit:
         new_hypothesis["audit"] = plan_audit
+    if tool_trace:
+        new_hypothesis["tool_trace"] = tool_trace
     executed_hypotheses.append(new_hypothesis)
     return executed_hypotheses
 
@@ -1000,6 +1055,7 @@ def summarize_execution_results(
     # and exhausted-action filtering.
     successful_actions = [name for name, result in execution_results.items() if result.success]
     if successful_actions or failed_actions:
+        tool_trace = _build_tool_trace(execution_results)
         executed_hypotheses = track_hypothesis(
             executed_hypotheses,
             successful_actions,
@@ -1008,6 +1064,7 @@ def summarize_execution_results(
             plan_audit,
             failed_actions=failed_actions,
             exhausted_actions=exhausted_actions,
+            tool_trace=tool_trace,
         )
 
     evidence_summary = build_evidence_summary(execution_results)

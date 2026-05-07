@@ -473,6 +473,16 @@ _TOOL_EVIDENCE_SUMMARY: dict[str, tuple[str, ...]] = {
     "query_grafana_service_names": ("grafana_service_names",),
 }
 
+# Short labels used in the Pipeline timeline table (column "Plan").
+_TOOL_SHORT_LABEL: dict[str, str] = {
+    "query_grafana_metrics": "metrics",
+    "query_grafana_logs": "logs",
+    "query_grafana_alert_rules": "alert rules",
+    "query_grafana_traces": "traces",
+    "query_grafana_service_names": "service names",
+    "get_sre_guidance": "SRE guidance",
+}
+
 
 def _evidence_result_summary(tool: str, evidence: dict[str, Any]) -> str:
     """One-line result summary for a tool call, derived from the evidence dict."""
@@ -491,6 +501,61 @@ def _evidence_result_summary(tool: str, evidence: dict[str, Any]) -> str:
     return ", ".join(parts) if parts else "—"
 
 
+def _short_actions_label(actions: list[str]) -> str:
+    """Render `["query_grafana_metrics", "query_grafana_logs"]` as `metrics + logs`."""
+    if not actions:
+        return "—"
+    return " + ".join(_TOOL_SHORT_LABEL.get(a, a) for a in actions)
+
+
+def _trace_summary(entry: dict[str, Any]) -> str:
+    """Pull the precomputed per-call summary from a tool_trace entry.
+
+    The summary is computed in `app.nodes.investigate.processing.post_process`
+    at capture time, where the full (untruncated) tool output is available.
+    """
+    summary = entry.get("summary")
+    if isinstance(summary, str) and summary:
+        return summary
+    return "raw output"
+
+
+def _build_loop_observations(
+    actual_sequence: list[str],
+    causal_chain: list[Any],
+    passed: bool,
+) -> list[str]:
+    """Detect simple cross-cutting issues (A1 ordering, missing causal chain)."""
+    observations: list[str] = []
+
+    services_actions = [
+        a
+        for a in actual_sequence
+        if "service" in a.lower()
+        and ("query" in a.lower() or "list" in a.lower() or "enumerate" in a.lower())
+    ]
+    metrics_actions = [
+        a for a in actual_sequence if "metric" in a.lower() and "service" not in a.lower()
+    ]
+    if services_actions and metrics_actions:
+        first_service_idx = next(i for i, a in enumerate(actual_sequence) if a in services_actions)
+        first_metric_idx = next(i for i, a in enumerate(actual_sequence) if a in metrics_actions)
+        if first_service_idx > first_metric_idx:
+            observations.append(
+                f"**A1 ordering bug** — `{services_actions[0]}` happened at step "
+                f"{first_service_idx + 1}, after metrics were queried at step "
+                f"{first_metric_idx + 1}. The agent queried metrics on instances it had not "
+                "yet discovered."
+            )
+    if passed and not causal_chain:
+        observations.append(
+            "**Empty causal chain** — the agent reached the correct diagnosis category but "
+            "recorded no causal chain steps. The conclusion appears to be based on "
+            "pattern-matching rather than traced reasoning."
+        )
+    return observations
+
+
 def _format_trajectory_markdown(
     fixture: ScenarioFixture,
     final_state: dict[str, Any],
@@ -499,9 +564,15 @@ def _format_trajectory_markdown(
 ) -> str:
     """Render a verbose, human-readable trajectory audit document.
 
-    Sections: Statistics, Alert, Expected vs Actual trajectory, Per-loop tool
-    calls, Evidence trace, Validated claims, Causal chain, Diagnosis, Observations.
-    Designed for manual review during Phase 2A trajectory analysis.
+    Layout (top-down, scannable):
+      1. Verdict          — single table: status, reason, categories, loops, calls
+      2. Alert            — title, severity, difficulty, failure mode
+      3. Diagnosis        — predicted root cause, matched/missing keywords, claims
+      4. Trajectory       — Expected vs Actual side-by-side, plus score
+      5. Pipeline timeline— Plan → Investigate → Merge per loop, one row per loop
+      6. Observations     — auto-detected anomalies (A1 ordering, missing chain)
+      7. Per-loop reasoning — rationale + tool calls; raw outputs collapsed in <details>
+      8. Reviewer notes
     """
     lines: list[str] = []
     answer_key = fixture.answer_key
@@ -519,199 +590,239 @@ def _format_trajectory_markdown(
             failed_sequence.append(name)
 
     loops_used = int(final_state.get("investigation_loop_count") or len(executed_hypotheses))
-
-    lines.append(f"# Trajectory audit — {fixture.scenario_id}")
-    lines.append("")
-    lines.append(f"- Captured: {datetime.now(UTC).isoformat(timespec='seconds')}")
-    lines.append(f"- Scenario difficulty: {getattr(metadata, 'scenario_difficulty', '?')}")
-    lines.append(f"- Failure mode: {getattr(metadata, 'failure_mode', '?')}")
-    lines.append(f"- Status: {'PASS' if score.passed else 'FAIL'}")
-    if score.failure_reason:
-        lines.append(f"- Failure reason: `{score.failure_reason}`")
-    lines.append("")
-
     total_calls = len(actual_sequence) + len(failed_sequence)
-    unique_tools = list(dict.fromkeys(actual_sequence))  # ordered, deduplicated
-    sequence_str = " → ".join(f"`{a}`" for a in actual_sequence)
-    lines.append("## Statistics")
+    unique_tools = list(dict.fromkeys(actual_sequence))
+
+    # 1. Title + Verdict ------------------------------------------------
+    lines.append(f"# {fixture.scenario_id}")
     lines.append("")
-    lines.append("| Metric | Value |")
-    lines.append("|--------|-------|")
-    lines.append(
-        f"| Tool calls | {total_calls} total ({len(actual_sequence)} successful, {len(failed_sequence)} failed) |"
-    )
-    lines.append(f"| Loops used | {loops_used} / {answer_key.max_investigation_loops} max |")
-    lines.append(f"| Unique tools | {len(unique_tools)} |")
+    lines.append("## Verdict")
     lines.append("")
-    lines.append(f"**Sequence:** {sequence_str}")
+    lines.append("| | |")
+    lines.append("|---|---|")
+    status_cell = "✅ PASS" if score.passed else "❌ FAIL"
+    lines.append(f"| **Status** | {status_cell} |")
+    if score.failure_reason:
+        lines.append(f"| **Failure reason** | `{score.failure_reason}` |")
+    lines.append(f"| **Predicted category** | `{score.actual_category}` |")
+    lines.append(f"| **Expected category** | `{score.expected_category}` |")
+    lines.append(f"| **Captured** | {datetime.now(UTC).isoformat(timespec='seconds')} |")
     lines.append("")
 
+    # 2. Process statistics — actual vs expected -----------------------
+    expected_unique = list(dict.fromkeys(expected))
+    expected_count = len(expected_unique)
+    matched_expected = sum(1 for e in expected_unique if e in actual_sequence)
+    extra_calls = max(0, len(actual_sequence) - expected_count)
+    max_loops = answer_key.max_investigation_loops
+
+    lines.append("## Process statistics")
+    lines.append("")
+    lines.append("| Metric | Used | Expected | Notes |")
+    lines.append("|--------|------|----------|-------|")
+    failed_note = f", {len(failed_sequence)} failed" if failed_sequence else ""
+    extra_note = f"{extra_calls} extra" if extra_calls else "—"
+    lines.append(
+        f"| Tool calls | {total_calls}{failed_note} | {expected_count} | {extra_note} |"
+    )
+    lines.append(
+        f"| Unique tools | {len(unique_tools)} | {expected_count} | "
+        f"{matched_expected}/{expected_count} expected matched |"
+    )
+    loops_note = "over budget" if loops_used > max_loops else "within budget"
+    lines.append(f"| Loops | {loops_used} | {max_loops} max | {loops_note} |")
+    if expected_count:
+        match_pct = round(100 * matched_expected / expected_count)
+        lines.append(
+            f"| Expected steps covered | {matched_expected} | {expected_count} | "
+            f"{match_pct}% |"
+        )
+    if score.trajectory is not None:
+        traj = score.trajectory
+        lines.append(
+            f"| Score | sequencing_ok={traj.sequencing_ok}, "
+            f"calibration_ok={traj.calibration_ok} | efficiency=1.0 | "
+            f"actual={traj.efficiency_score} |"
+        )
+    lines.append("")
+
+    # 2. Alert ----------------------------------------------------------
     alert = fixture.alert or {}
     labels = (alert.get("commonLabels") or {}) if isinstance(alert, dict) else {}
     lines.append("## Alert")
     lines.append("")
-    lines.append(f"- Title: {alert.get('title') or labels.get('alertname') or fixture.scenario_id}")
-    lines.append(f"- Severity: {labels.get('severity') or 'unknown'}")
-    if alert.get("annotations"):
-        ann = alert["annotations"]
-        if isinstance(ann, dict):
-            for k, v in ann.items():
-                lines.append(f"- {k}: {v}")
+    title = alert.get("title") or labels.get("alertname") or fixture.scenario_id
+    lines.append(f"- **Title:** {title}")
+    lines.append(f"- **Severity:** {labels.get('severity') or 'unknown'}")
+    lines.append(f"- **Difficulty:** L{getattr(metadata, 'scenario_difficulty', '?')}")
+    lines.append(f"- **Failure mode:** `{getattr(metadata, 'failure_mode', '?')}`")
     lines.append("")
 
-    lines.append("## Trajectory")
+    # 3. Diagnosis ------------------------------------------------------
+    lines.append("## Diagnosis")
     lines.append("")
-    lines.append("### Expected (from `answer.yml:optimal_trajectory`)")
+    root_cause = final_state.get("root_cause") or "_(empty)_"
+    lines.append(f"> {root_cause}")
     lines.append("")
-    if expected:
-        for i, action in enumerate(expected, 1):
-            lines.append(f"{i}. `{action}`")
-    else:
-        lines.append("_No optimal_trajectory declared._")
+    if score.matched_keywords:
+        matched = ", ".join(f"`{k}`" for k in score.matched_keywords)
+        lines.append(f"- **Matched keywords:** {matched}")
+    if score.missing_keywords:
+        missing = ", ".join(f"`{k}`" for k in score.missing_keywords)
+        lines.append(f"- **Missing keywords:** {missing}")
     lines.append("")
-
-    lines.append("### Actual (flattened across investigation loops)")
-    lines.append("")
-    if actual_sequence:
-        for i, action in enumerate(actual_sequence, 1):
-            marker = " ✓" if action in expected else ""
-            lines.append(f"{i}. `{action}`{marker}")
-    else:
-        lines.append("_No actions recorded._")
-    lines.append("")
-
-    if executed_hypotheses:
-        lines.append("### Per investigation loop")
-        lines.append("")
-        for idx, hyp in enumerate(executed_hypotheses, 1):
-            lines.append(f"#### Loop {idx}")
-            rationale = hyp.get("rationale") or ""
-            if rationale:
-                lines.append("")
-                lines.append(f"**Planning rationale:** {rationale}")
-            actions = hyp.get("actions") or []
-            if actions:
-                lines.append("")
-                lines.append(f"**Actions:** {', '.join(f'`{a}`' for a in actions)}")
-            failed = hyp.get("failed_actions") or []
-            if failed:
-                failed_names = [
-                    f.get("action", str(f)) if isinstance(f, dict) else str(f) for f in failed
-                ]
-                lines.append(f"**Failed:** {', '.join(f'`{a}`' for a in failed_names)}")
-            lines.append("")
-
-    if score.trajectory is not None:
-        traj = score.trajectory
-        lines.append("### Trajectory score (set-membership — ordering NOT enforced)")
-        lines.append("")
-        lines.append(f"- sequencing_ok: {traj.sequencing_ok}")
-        lines.append(
-            f"- calibration_ok: {traj.calibration_ok}  ({traj.loops_used}/{traj.max_loops} loops)"
-        )
-        lines.append(f"- efficiency_score: {traj.efficiency_score}")
-        lines.append("")
-
-    evidence = final_state.get("evidence") or {}
-    lines.append("## Evidence trace")
-    lines.append("")
-    lines.append("| # | Tool | Result |")
-    lines.append("|---|------|--------|")
-    for i, action in enumerate(actual_sequence, 1):
-        result = _evidence_result_summary(action, evidence)
-        lines.append(f"| {i} | `{action}` | {result} |")
-    if failed_sequence:
-        for action in failed_sequence:
-            lines.append(f"| — | `{action}` _(failed)_ | — |")
-    if not actual_sequence and not failed_sequence:
-        lines.append("| — | _No actions recorded_ | — |")
-    lines.append("")
-
-    if queried_metrics:
-        lines.append("### Queried metric names (Selective backend)")
-        lines.append("")
-        for m in queried_metrics:
-            lines.append(f"- `{m}`")
-        lines.append("")
 
     validated = final_state.get("validated_claims") or []
+    non_validated = final_state.get("non_validated_claims") or []
+    causal = final_state.get("causal_chain") or []
     if validated:
-        lines.append("## Validated claims")
+        lines.append("**Validated claims:**")
         lines.append("")
         for vc in validated:
-            claim = vc.get("claim", "")
-            ev = vc.get("evidence", "")
+            claim = vc.get("claim", "") if isinstance(vc, dict) else str(vc)
+            ev = vc.get("evidence", "") if isinstance(vc, dict) else ""
             ev_str = f" _(evidence: {ev})_" if ev else ""
             lines.append(f"- {claim}{ev_str}")
         lines.append("")
-
-    non_validated = final_state.get("non_validated_claims") or []
     if non_validated:
-        lines.append("## Non-validated claims")
+        lines.append("**Non-validated claims:**")
         lines.append("")
         for nv in non_validated:
             claim = nv.get("claim", "") if isinstance(nv, dict) else str(nv)
             lines.append(f"- {claim}")
         lines.append("")
-
-    causal = final_state.get("causal_chain") or []
     if causal:
-        lines.append("## Causal chain")
+        lines.append("**Causal chain:**")
         lines.append("")
         for i, step in enumerate(causal, 1):
             lines.append(f"{i}. {step}")
         lines.append("")
 
-    lines.append("## Diagnosis")
+    # 4. Trajectory comparison -----------------------------------------
+    lines.append("## Trajectory comparison")
     lines.append("")
-    lines.append(f"- Predicted root cause: {final_state.get('root_cause') or '_(empty)_'}")
-    lines.append(f"- Predicted category:   `{score.actual_category}`")
-    lines.append(f"- Expected category:    `{score.expected_category}`")
-    if score.matched_keywords:
-        lines.append(f"- Matched keywords:     {', '.join(score.matched_keywords)}")
-    if score.missing_keywords:
-        lines.append(f"- Missing keywords:     {', '.join(score.missing_keywords)}")
+    lines.append("| # | Expected | Actual | Status |")
+    lines.append("|---|----------|--------|--------|")
+    max_steps = max(len(expected), len(actual_sequence))
+    for i in range(max_steps):
+        exp = f"`{expected[i]}`" if i < len(expected) else "—"
+        act = f"`{actual_sequence[i]}`" if i < len(actual_sequence) else "—"
+        if i < len(expected) and i < len(actual_sequence):
+            status = "✓ matched" if expected[i] == actual_sequence[i] else "≠ different"
+        elif i < len(actual_sequence):
+            status = "extra"
+        else:
+            status = "missing"
+        lines.append(f"| {i + 1} | {exp} | {act} | {status} |")
+    lines.append("")
+    if actual_sequence:
+        seq_str = " → ".join(f"`{a}`" for a in actual_sequence)
+        lines.append(f"**Sequence:** {seq_str}")
+        lines.append("")
+
+    # 5. Pipeline timeline ---------------------------------------------
+    lines.append("## Pipeline timeline")
+    lines.append("")
+    lines.append("| Loop | Plan | Investigate | Merge |")
+    lines.append("|------|------|-------------|-------|")
+    for idx, hyp in enumerate(executed_hypotheses, 1):
+        actions = hyp.get("actions") or []
+        plan_label = _short_actions_label(actions)
+        trace_entries: list[dict[str, Any]] = hyp.get("tool_trace") or []
+        ok_count = sum(1 for t in trace_entries if t.get("success", True))
+        fail_count = len(trace_entries) - ok_count
+        invest_cell = f"{ok_count} ok" + (f", {fail_count} failed" if fail_count else "")
+        merge_parts = [_trace_summary(t) for t in trace_entries if t.get("success", True)]
+        merge_cell = " + ".join(p for p in merge_parts if p and p != "—") or "no new evidence"
+        lines.append(f"| {idx} | {plan_label} | {invest_cell} | {merge_cell} |")
     lines.append("")
 
+    # 6. Observations ---------------------------------------------------
+    observations = _build_loop_observations(actual_sequence, causal, score.passed)
     lines.append("## Observations")
     lines.append("")
-
-    observations: list[str] = []
-
-    services_actions = [
-        a
-        for a in actual_sequence
-        if "service" in a.lower()
-        and ("query" in a.lower() or "list" in a.lower() or "enumerate" in a.lower())
-    ]
-    metrics_actions = [
-        a for a in actual_sequence if "metric" in a.lower() and "service" not in a.lower()
-    ]
-    if services_actions and metrics_actions:
-        first_service_idx = next(i for i, a in enumerate(actual_sequence) if a in services_actions)
-        first_metric_idx = next(i for i, a in enumerate(actual_sequence) if a in metrics_actions)
-        if first_service_idx > first_metric_idx:
-            observations.append(
-                f"Service enumeration (`{services_actions[0]}`) happened at step {first_service_idx + 1}, "
-                f"after metrics were already queried at step {first_metric_idx + 1}. "
-                "The agent queried metrics on instances it had not yet discovered."
-            )
-
-    if score.passed and not causal:
-        observations.append(
-            "The agent reached the correct diagnosis category but recorded no causal chain steps. "
-            "The conclusion appears to be based on pattern-matching rather than traced reasoning."
-        )
-
-    if not observations:
-        lines.append(
-            "_No issues auto-detected. Reviewer: read the per-loop rationale above and add notes below._"
-        )
-    else:
+    if observations:
         for obs in observations:
             lines.append(f"- {obs}")
+    else:
+        lines.append(
+            "_No anomalies auto-detected. Reviewer: read the per-loop rationale below "
+            "and add notes at the bottom._"
+        )
     lines.append("")
-    lines.append("### Reviewer notes")
+
+    # 7. Per-loop reasoning --------------------------------------------
+    lines.append("## Per-loop reasoning")
+    lines.append("")
+    for idx, hyp in enumerate(executed_hypotheses, 1):
+        actions = hyp.get("actions") or []
+        rationale = hyp.get("rationale") or ""
+        trace_entries = hyp.get("tool_trace") or []
+        failed = hyp.get("failed_actions") or []
+
+        plan_label = _short_actions_label(actions)
+        lines.append(f"### Loop {idx} — Plan: {plan_label}")
+        lines.append("")
+        if rationale:
+            lines.append(f"> {rationale}")
+            lines.append("")
+
+        if actions:
+            lines.append("**Tool calls:**")
+            lines.append("")
+            for j, entry in enumerate(trace_entries, 1):
+                tool = entry.get("tool", "unknown")
+                summary = _trace_summary(entry)
+                marker = "" if entry.get("success", True) else " _(failed)_"
+                lines.append(f"{j}. `{tool}` → {summary}{marker}")
+            lines.append("")
+
+        if failed:
+            failed_names = [
+                f.get("action", str(f)) if isinstance(f, dict) else str(f) for f in failed
+            ]
+            lines.append(f"**Failed actions:** {', '.join(f'`{a}`' for a in failed_names)}")
+            lines.append("")
+
+        if trace_entries:
+            lines.append("<details>")
+            lines.append("<summary>Raw tool outputs</summary>")
+            lines.append("")
+            for entry in trace_entries:
+                tool = entry.get("tool", "unknown")
+                success = entry.get("success", True)
+                marker = "" if success else " _(failed)_"
+                lines.append(f"#### `{tool}`{marker}")
+                lines.append("")
+                params = entry.get("params") or {}
+                if params:
+                    lines.append("Calling:")
+                    lines.append("")
+                    lines.append("```json")
+                    lines.append(json.dumps(params, indent=2, default=str))
+                    lines.append("```")
+                    lines.append("")
+                output = entry.get("output") or ""
+                if output:
+                    lines.append("Output:")
+                    lines.append("")
+                    lines.append("```json")
+                    lines.append(output)
+                    lines.append("```")
+                    lines.append("")
+            lines.append("</details>")
+            lines.append("")
+
+    # Selective-backend audit (only when present) ----------------------
+    if queried_metrics:
+        lines.append("## Queried metric names (Selective backend)")
+        lines.append("")
+        for m in queried_metrics:
+            lines.append(f"- `{m}`")
+        lines.append("")
+
+    # 8. Reviewer notes ------------------------------------------------
+    lines.append("## Reviewer notes")
     lines.append("")
     lines.append("_(Add manual observations here.)_")
     lines.append("")

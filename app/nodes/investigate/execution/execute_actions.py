@@ -3,7 +3,7 @@
 import time
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from app.tools.registered_tool import RegisteredTool as InvestigationAction
@@ -17,6 +17,7 @@ class ActionExecutionResult:
     success: bool
     data: dict
     error: str | None = None
+    params: dict = field(default_factory=dict)
 
 
 def _is_transient_error(exception: Exception) -> bool:
@@ -64,6 +65,7 @@ def _execute_with_retry(
                         success=True,
                         data=data,
                         error=None,
+                        params=kwargs,
                     )
                 else:
                     return ActionExecutionResult(
@@ -71,6 +73,7 @@ def _execute_with_retry(
                         success=False,
                         data=data,
                         error=data.get("error", "Unknown error"),
+                        params=kwargs,
                     )
             else:
                 return ActionExecutionResult(
@@ -78,6 +81,7 @@ def _execute_with_retry(
                     success=False,
                     data={},
                     error="Invalid response",
+                    params=kwargs,
                 )
         except Exception as e:
             last_error = e
