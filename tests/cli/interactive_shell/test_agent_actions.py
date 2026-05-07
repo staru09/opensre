@@ -47,6 +47,10 @@ def test_provider_switch_plans_provider_action() -> None:
     assert plan_cli_actions(message) == []
 
 
+def test_generic_synthetic_test_request_plans_synthetic_action() -> None:
+    assert plan_terminal_tasks("Can you run a synthetic test?") == ["synthetic_test"]
+
+
 def test_integration_prompt_plans_datadog_lookup_only() -> None:
     message = (
         "tell me about what the discord integration can do and then tell me what "

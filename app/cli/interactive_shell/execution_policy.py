@@ -57,7 +57,7 @@ def resolve_slash_execution_tier(
             if len(args) >= 2 and args[1].lower() in {"set", "use", "switch"}:
                 return ExecutionTier.ELEVATED
             return ExecutionTier.SAFE
-        if sub in {"set", "use", "switch"}:
+        if sub in {"set", "use", "switch", "restore", "default", "reset"}:
             return ExecutionTier.ELEVATED
         return ExecutionTier.SAFE
     if key == "/integrations":
