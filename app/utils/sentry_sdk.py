@@ -146,9 +146,9 @@ def _before_breadcrumb(crumb: dict[str, Any], _hint: dict[str, Any]) -> dict[str
 
 def _capture_sentry_init_skipped(reason: str, *, error_type: str | None = None) -> None:
     # Local import to avoid an import cycle between Sentry and analytics modules.
-    from app.analytics.provider import get_analytics
+    from app.analytics.provider import Properties, get_analytics
 
-    properties: dict[str, str | bool] = {"reason": reason}
+    properties: Properties = {"reason": reason}
     if error_type is not None:
         properties["error_type"] = error_type
     with suppress(Exception):

@@ -12,6 +12,7 @@ from rich.markup import escape
 
 import app.cli.interactive_shell.intent_parser as _intent_parser
 from app.analytics.cli import capture_repl_execution_policy_decision
+from app.analytics.provider import Properties
 from app.cli.interactive_shell.execution_tier import ExecutionTier
 from app.cli.interactive_shell.session import ReplSession
 from app.cli.interactive_shell.shell_policy import (
@@ -76,7 +77,7 @@ def _emit_decision(
     reason: str | None,
     user_prompted: bool = False,
 ) -> None:
-    props: dict[str, str | bool] = {
+    props: Properties = {
         "action_type": action_type,
         "policy_verdict": policy_verdict,
         "outcome": outcome,

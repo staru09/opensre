@@ -66,7 +66,7 @@ _CI_FINGERPRINT_ENV_KEYS: Final[tuple[str, ...]] = (
     "JOB_NAME",
 )
 
-PropertyValue: TypeAlias = str | bool  # noqa: UP040
+PropertyValue: TypeAlias = str | bool | int | float  # noqa: UP040
 Properties: TypeAlias = dict[str, PropertyValue]  # noqa: UP040
 
 
