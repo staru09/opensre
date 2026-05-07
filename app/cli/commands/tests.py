@@ -10,9 +10,9 @@ import click
 from app.analytics.cli import (
     capture_test_run_completed,
     capture_test_run_failed,
+    capture_test_run_started,
     capture_test_synthetic_completed,
     capture_test_synthetic_failed,
-    capture_test_run_started,
     capture_test_synthetic_started,
     capture_tests_listed,
     capture_tests_picker_opened,

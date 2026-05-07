@@ -30,15 +30,23 @@ def test_node_opensre_llm_eval_emits_parse_failed_metric(monkeypatch) -> None:
     captured_parse_failed: list[str] = []
     captured_failed: list[tuple[str, str]] = []
 
+    def _capture_failed(
+        *,
+        duration_ms: float,
+        failure_stage: str,
+        failure_type: str,
+        mode: str,
+    ) -> None:
+        _ = (duration_ms, mode)
+        captured_failed.append((failure_stage, failure_type))
+
     monkeypatch.setattr(
         "app.nodes.evaluate_opensre.node.capture_eval_process_parse_failed",
         lambda *, failure_type, mode: captured_parse_failed.append(f"{failure_type}:{mode}"),
     )
     monkeypatch.setattr(
         "app.nodes.evaluate_opensre.node.capture_eval_process_failed",
-        lambda *, duration_ms, failure_stage, failure_type, mode: captured_failed.append(
-            (failure_stage, failure_type)
-        ),
+        _capture_failed,
     )
 
     with patch(
