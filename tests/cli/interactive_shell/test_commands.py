@@ -296,9 +296,12 @@ class TestIntegrationsCommand:
 
     def test_show_unknown_service(self, monkeypatch: object) -> None:
         self._patch(monkeypatch)
+        session = ReplSession()
+        session.record("slash", "/integrations show bogus")
         console, buf = _capture()
-        dispatch_slash("/integrations show bogus", ReplSession(), console)
+        dispatch_slash("/integrations show bogus", session, console)
         assert "service not found" in buf.getvalue()
+        assert session.history[-1]["ok"] is False
 
     def test_show_missing_arg(self, monkeypatch: object) -> None:
         self._patch(monkeypatch)
@@ -442,6 +445,30 @@ class TestModelCommand:
         console, buf = _capture()
         dispatch_slash("/model set", ReplSession(), console)
         assert "usage" in buf.getvalue()
+
+    def test_set_unknown_reasoning_model_is_rejected(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        self._patch_llm(monkeypatch)
+        import app.cli.wizard.env_sync as env_sync
+
+        env_path = tmp_path / ".env"
+        monkeypatch.setattr(env_sync, "PROJECT_ENV_PATH", env_path)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        session = ReplSession()
+        session.record("slash", "/model set anthropic not-a-real-model-xyz")
+
+        console, buf = _capture()
+        dispatch_slash("/model set anthropic not-a-real-model-xyz", session, console)
+
+        output = buf.getvalue()
+        assert "unknown model for anthropic" in output
+        assert "not-a-real-model-xyz" in output
+        assert "switched LLM provider" not in output
+        assert not env_path.exists()
+        assert session.history[-1]["ok"] is False
 
     def test_set_with_toolcall_flag_writes_both_env_vars(
         self,
@@ -608,9 +635,12 @@ class TestInvestigateFileCommand:
         assert "usage" in buf.getvalue()
 
     def test_missing_file_prints_error(self) -> None:
+        session = ReplSession()
+        session.record("slash", "/investigate /nonexistent/path.json")
         console, buf = _capture()
-        dispatch_slash("/investigate /nonexistent/path.json", ReplSession(), console)
+        dispatch_slash("/investigate /nonexistent/path.json", session, console)
         assert "file not found" in buf.getvalue()
+        assert session.history[-1]["ok"] is False
 
     def test_valid_file_runs_investigation(self, tmp_path: object, monkeypatch: object) -> None:
         alert_file = tmp_path / "alert.json"  # type: ignore[operator]

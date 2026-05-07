@@ -14,6 +14,18 @@ from app.cli.interactive_shell.session import ReplSession
 from app.cli.interactive_shell.theme import TERMINAL_ERROR
 
 
+def _format_supported_models(provider_models: tuple[object, ...]) -> str:
+    values = [str(getattr(model, "value", "")) for model in provider_models]
+    visible = [value for value in values if value]
+    return ", ".join(visible) if visible else "provider default"
+
+
+def _is_reasoning_model_plausible(provider_value: str, model: str) -> bool:
+    if provider_value == "anthropic":
+        return model.startswith("claude-")
+    return True
+
+
 def switch_llm_provider(
     provider_name: str,
     console: Console,
@@ -61,6 +73,17 @@ def switch_llm_provider(
         return False
 
     selected_model = model.strip() if model else provider.default_model
+    if selected_model and not _is_reasoning_model_plausible(provider.value, selected_model):
+        console.print(
+            f"[{TERMINAL_ERROR}]unknown model for {provider.value}:[/] "
+            f"{escape(selected_model)}"
+        )
+        console.print(
+            "[dim]known reasoning models:[/dim] "
+            f"{escape(_format_supported_models(provider.models))}"
+        )
+        return False
+
     values = {"LLM_PROVIDER": provider.value, provider.model_env: selected_model}
     if provider.legacy_model_env:
         values[provider.legacy_model_env] = selected_model
@@ -207,13 +230,16 @@ def _cmd_model(session: ReplSession, console: Console, args: list[str]) -> bool:
             console.print(
                 "[dim]usage:[/dim] /model set <provider> [model] [--toolcall-model <model>]"
             )
+            session.mark_latest(ok=False, kind="slash")
             return True
-        switch_llm_provider(
+        switched = switch_llm_provider(
             provider_name,
             console,
             model=reasoning_model,
             toolcall_model=tc_model,
         )
+        if not switched:
+            session.mark_latest(ok=False, kind="slash")
         return True
 
     console.print(

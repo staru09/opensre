@@ -5,7 +5,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import click
 import pytest
 
 from app.analytics import provider
@@ -73,6 +72,21 @@ def test_main_runs_health_command(monkeypatch) -> None:
     assert exit_code == 0
 
 
+def test_main_does_not_capture_expected_usage_errors_to_sentry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[BaseException] = []
+    monkeypatch.setattr("app.cli.__main__.capture_first_run_if_needed", lambda: None)
+    monkeypatch.setattr("app.cli.__main__.shutdown_analytics", lambda **_kw: None)
+    monkeypatch.setattr("app.cli.__main__.capture_cli_invoked", lambda *_args: None)
+    monkeypatch.setattr("app.cli.__main__.capture_exception", captured.append)
+
+    exit_code = main(["integrations", "show", "nonexistent"])
+
+    assert exit_code != 0
+    assert captured == []
+
+
 def test_main_allows_update_when_sentry_sdk_missing(monkeypatch, capsys) -> None:
     monkeypatch.setattr("app.cli.__main__.capture_first_run_if_needed", lambda: None)
     monkeypatch.setattr("app.cli.__main__.shutdown_analytics", lambda **_kw: None)
@@ -120,7 +134,7 @@ def test_main_does_not_capture_analytics_for_help(monkeypatch, capsys) -> None:
     assert captured == []
 
 
-def test_main_does_not_capture_analytics_for_parse_error(monkeypatch, capsys) -> None:
+def test_main_does_not_capture_analytics_or_sentry_for_parse_error(monkeypatch, capsys) -> None:
     captured: list[str] = []
     captured_errors: list[BaseException] = []
     monkeypatch.setattr(
@@ -137,11 +151,10 @@ def test_main_does_not_capture_analytics_for_parse_error(monkeypatch, capsys) ->
     assert exit_code != 0
     assert "No such command" in capsys.readouterr().err
     assert captured == []
-    assert len(captured_errors) == 1
-    assert isinstance(captured_errors[0], click.ClickException)
+    assert captured_errors == []
 
 
-def test_main_captures_invalid_option_parse_error(monkeypatch, capsys) -> None:
+def test_main_does_not_capture_invalid_option_parse_error(monkeypatch, capsys) -> None:
     captured: list[str] = []
     captured_errors: list[BaseException] = []
     monkeypatch.setattr(
@@ -158,8 +171,7 @@ def test_main_captures_invalid_option_parse_error(monkeypatch, capsys) -> None:
     assert exit_code == 2
     assert "No such option: --definitely-wrong-option" in capsys.readouterr().err
     assert captured == []
-    assert len(captured_errors) == 1
-    assert isinstance(captured_errors[0], click.ClickException)
+    assert captured_errors == []
 
 
 def test_main_captures_analytics_once_for_accepted_command(monkeypatch, capsys) -> None:

@@ -45,17 +45,20 @@ def _cmd_investigate_file(session: ReplSession, console: Console, args: list[str
 
     if not args:
         console.print("[dim]usage:[/dim] /investigate <file>")
+        session.mark_latest(ok=False, kind="slash")
         return True
 
     path = Path(args[0])
     if not path.exists():
         console.print(f"[{TERMINAL_ERROR}]file not found:[/] {escape(str(path))}")
+        session.mark_latest(ok=False, kind="slash")
         return True
 
     try:
         text = path.read_text(encoding="utf-8")
     except Exception as exc:  # noqa: BLE001
         console.print(f"[{TERMINAL_ERROR}]cannot read file:[/] {escape(str(exc))}")
+        session.mark_latest(ok=False, kind="slash")
         return True
 
     task = session.task_registry.create(TaskKind.INVESTIGATION)
@@ -70,6 +73,7 @@ def _cmd_investigate_file(session: ReplSession, console: Console, args: list[str
         task.mark_cancelled()
         console.print("[yellow]investigation cancelled.[/yellow]")
         session.record("alert", args[0], ok=False)
+        session.mark_latest(ok=False, kind="slash")
         return True
     except OpenSREError as exc:
         task.mark_failed(str(exc))
@@ -77,12 +81,14 @@ def _cmd_investigate_file(session: ReplSession, console: Console, args: list[str
         if exc.suggestion:
             console.print(f"[yellow]suggestion:[/yellow] {escape(exc.suggestion)}")
         session.record("alert", args[0], ok=False)
+        session.mark_latest(ok=False, kind="slash")
         return True
     except Exception as exc:  # noqa: BLE001
         task.mark_failed(str(exc))
         capture_exception(exc)
         console.print(f"[{TERMINAL_ERROR}]investigation failed:[/] {escape(str(exc))}")
         session.record("alert", args[0], ok=False)
+        session.mark_latest(ok=False, kind="slash")
         return True
 
     root = final_state.get("root_cause")

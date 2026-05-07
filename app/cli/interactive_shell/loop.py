@@ -19,7 +19,8 @@ from rich.console import Console
 from rich.markup import escape
 from rich.rule import Rule
 
-from app.cli.interactive_shell.agent_actions import execute_cli_actions
+from app.analytics.cli import capture_terminal_turn_summarized
+from app.cli.interactive_shell.agent_actions import execute_cli_actions_with_metrics
 from app.cli.interactive_shell.banner import render_banner
 from app.cli.interactive_shell.cli_agent import answer_cli_agent
 from app.cli.interactive_shell.cli_help import answer_cli_help
@@ -389,8 +390,24 @@ async def _run_one_turn(
         return True
 
     if kind == "cli_agent":
-        if execute_cli_actions(text, session, console):
-            _print_turn_separator(console)
+        turn = execute_cli_actions_with_metrics(text, session, console)
+        fallback_to_llm = not turn.handled
+        snapshot = session.record_terminal_turn(
+            executed_count=turn.executed_count,
+            executed_success_count=turn.executed_success_count,
+            fallback_to_llm=fallback_to_llm,
+        )
+        capture_terminal_turn_summarized(
+            planned_count=turn.planned_count,
+            executed_count=turn.executed_count,
+            executed_success_count=turn.executed_success_count,
+            fallback_to_llm=fallback_to_llm,
+            session_turn_index=snapshot.turn_index,
+            session_fallback_count=snapshot.fallback_count,
+            session_action_success_percent=snapshot.action_success_percent,
+            session_fallback_rate_percent=snapshot.fallback_rate_percent,
+        )
+        if turn.handled:
             return True
         answer_cli_agent(text, session, console)
         session.record("cli_agent", text)
@@ -436,7 +453,24 @@ async def _repl_main(initial_input: str | None = None, config: ReplConfig | None
                 session.record("cli_help", stripped)
                 _print_turn_separator(console)
             elif kind == "cli_agent":
-                if not execute_cli_actions(stripped, session, console):
+                turn = execute_cli_actions_with_metrics(stripped, session, console)
+                fallback_to_llm = not turn.handled
+                snapshot = session.record_terminal_turn(
+                    executed_count=turn.executed_count,
+                    executed_success_count=turn.executed_success_count,
+                    fallback_to_llm=fallback_to_llm,
+                )
+                capture_terminal_turn_summarized(
+                    planned_count=turn.planned_count,
+                    executed_count=turn.executed_count,
+                    executed_success_count=turn.executed_success_count,
+                    fallback_to_llm=fallback_to_llm,
+                    session_turn_index=snapshot.turn_index,
+                    session_fallback_count=snapshot.fallback_count,
+                    session_action_success_percent=snapshot.action_success_percent,
+                    session_fallback_rate_percent=snapshot.fallback_rate_percent,
+                )
+                if not turn.handled:
                     answer_cli_agent(stripped, session, console)
                     session.record("cli_agent", stripped)
                 _print_turn_separator(console)

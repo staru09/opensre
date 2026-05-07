@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 from app.analytics.cli import build_cli_invoked_properties, capture_cli_invoked
 from app.analytics.provider import Properties, capture_first_run_if_needed, shutdown_analytics
 from app.cli.commands import register_commands
+from app.cli.support.errors import OpenSREError
 from app.cli.support.layout import RichGroup, render_landing
 from app.cli.support.prompt_support import (
     handle_ctrl_c_press,
@@ -187,6 +188,11 @@ def _is_update_invocation(argv: list[str]) -> bool:
     return bool(command_parts) and command_parts[0] == "update"
 
 
+def _should_capture_cli_exception(exc: click.ClickException) -> bool:
+    """Return whether a Click error represents an unexpected internal failure."""
+    return not isinstance(exc, (click.UsageError, OpenSREError))
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point for the ``opensre`` console script."""
     load_dotenv(override=False)
@@ -214,7 +220,8 @@ def main(argv: list[str] | None = None) -> int:
         print(flush=True)
         return 0
     except click.ClickException as exc:
-        capture_exception(exc)
+        if _should_capture_cli_exception(exc):
+            capture_exception(exc)
         exc.show()
         return exc.exit_code
     except click.exceptions.Exit as exc:

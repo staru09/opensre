@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 from rich.console import Console
 
-from app.cli.interactive_shell import cli_help, docs_reference
+from app.cli.interactive_shell import docs_reference
 from app.cli.interactive_shell.cli_help import (
     _build_grounded_prompt,
     answer_cli_help,
