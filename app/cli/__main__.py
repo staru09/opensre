@@ -190,6 +190,8 @@ def _is_update_invocation(argv: list[str]) -> bool:
 
 def _should_capture_cli_exception(exc: click.ClickException) -> bool:
     """Return whether a Click error represents an unexpected internal failure."""
+    if isinstance(exc, click.UsageError) and str(exc).startswith("No such command "):
+        return True
     return not isinstance(exc, (click.UsageError, OpenSREError))
 
 

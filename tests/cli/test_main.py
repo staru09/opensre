@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import click
 import pytest
 
 from app.analytics import provider
@@ -134,7 +135,7 @@ def test_main_does_not_capture_analytics_for_help(monkeypatch, capsys) -> None:
     assert captured == []
 
 
-def test_main_does_not_capture_analytics_or_sentry_for_parse_error(monkeypatch, capsys) -> None:
+def test_main_captures_unknown_command_to_sentry(monkeypatch, capsys) -> None:
     captured: list[str] = []
     captured_errors: list[BaseException] = []
     monkeypatch.setattr(
@@ -151,7 +152,9 @@ def test_main_does_not_capture_analytics_or_sentry_for_parse_error(monkeypatch, 
     assert exit_code != 0
     assert "No such command" in capsys.readouterr().err
     assert captured == []
-    assert captured_errors == []
+    assert len(captured_errors) == 1
+    assert isinstance(captured_errors[0], click.UsageError)
+    assert str(captured_errors[0]).startswith("No such command ")
 
 
 def test_main_does_not_capture_invalid_option_parse_error(monkeypatch, capsys) -> None:
